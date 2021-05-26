@@ -1,10 +1,31 @@
 # `rtsVis`
+[![CRAN version](https://www.r-pkg.org/badges/version/rtsVis)](https://CRAN.R-project.org/package=rtsVis)
+[![CRAN downloads](https://cranlogs.r-pkg.org/badges/last-month/rtsVis?color=brightgreen)](https://CRAN.R-project.org/package=rtsVis)
+[![CRAN checks](https://cranchecks.info/badges/summary/rtsVis)](https://cran.r-project.org/web/checks/check_results_rtsVis.html)
+[![R-CMD-check](https://github.com/JohMast/rtsVis/workflows/R-CMD-check/badge.svg)](https://github.com/JohMast/rtsVis/actions)
+
 
 A lightweight `R` package to visualize large raster time series, building on a fast temporal interpolation core.
 rtsVis is linked to the <a href="https://github.com/16EAGLE/moveVis">`moveVis`</a> package and their joint use is recommended.
 
 <img align="right" src="https://github.com/JohMast/rtsVis_demo/blob/main/Images/rtsVis_Logo.png" width="130" height="150" />
+
+## Installation
+
+The released version of rtsVis can be installed from CRAN:
+```r
+install.packages("rtsVis")
+```
+
+
+The latest version of the package can be installed from github. 
+
+```r
+devtools::install_github("JohMast/rtsVis")
+```
+
 ## Concepts
+
 
 rtsVis operates on lists of objects:
 
@@ -26,159 +47,314 @@ To process those lists in a pipeline, we recommend pipes such as provided by <a 
 * `ts_add_positions_to_frames` Add points, coordinates, or polygons to a list of spatial plots.
 
 ## Example
-The creation an animation of NDVI changes in Northern Europe serves as an example of a typical and complete pipeline.
+In this example, we use a MODIS time series <a href="https://td-host.rz.unibw-muenchen.de/btnncfkb/public/Wz3fRVuC?k=1CyESW64ZFybfaSRXaMoiCPCO6qNOx8ctc5FCGg1-Pw">` (download here) `</a>to create typical visualisations which highlight vegetation dynamics on the African continent.
 
-### Step 1: Acquiring the Data
-In this step we acquire the data and load it. For this, we use the MODIStsp package. In practice, any data source will do, as long as it comes with sufficient metadata to associate a timestamp to each raster object. Sometimes this must be done manually.
+### Part 1: Preparing the Data
+
+We read our inputs:
+
+* A list of **MODIS raster files** in tif format, which contain 4 bands (Red, NIR, Blue, Green). These are monthly composites of the MCD43A4.006 product.
+* **points** in gpkg format, which can be visualized and for which statistics can be extracted. These correspond to various places in and around Africa.
+
+Optional, but useful to enhance the visualizations:
+
+* an **outline** of the continent Africa.
+* a global **hillshade** raster which can be applied to the spatial plots.
+
+Some functions in `rtsVis` require that timestamps for the rasters are set. Often, these come with the metadata or can be derived from the filename. They can also be manually set. In this example, we have monthly medians, and no true acquisition time. Therefore, we manually create a series of dates.
+In addition to the input times, we also set output times - for these, output dates will be created. We simply create a second, denser series of dates. Having a denser series will smooth the animation.
+
+If images from the input series are missing, it is not an issue, at least not from the technical side of things. Images for `out_times` will be interpolated regardless of the regularity of the input data. To illustrate this, we remove one of the input images. 
 
 ``` r
-library(MODIStsp) 
 library(raster)
-library(tidyverse)
+library(sf)
 library(rtsVis)
+library(RStoolbox)  
+library(tidyverse)
 
-#### Step 1: Acquiring the Data ####
-t <- MODIStsp(
-  gui = FALSE,
-  out_folder = "Beispieldaten/MODIS/NDVI_tsp",out_folder_mod="Beispieldaten/Temp",
-  selprod = "Vegetation_Indexes_16Days_1Km (M*D13A2)",
-  bandsel = c("NDVI"),
-  start_x = 18,end_x = 18,start_y = 3,end_y = 3,
-  user = "---Your Username---",
-  password = "---Your Password---",
-  start_date = "2011.01.01",
-  end_date = "2013.12.30",
-  verbose = TRUE,
-  parallel = TRUE
-)
+# Load the inputs
 
-ts <- get(load("PathTo/NDVI/MOD13A2_MYD13A2_NDVI_1_2011_361_2013_RData.RData"))
-```
+modis_tifs <- list.files("Beispieldaten/MODIS/Africa_MODIS_2017-2020/",full.names = T,pattern=".tif$")
+points <- st_read("Beispieldaten/Ancillary/Africa/Africa_places.gpkg")
+outline <- st_read("Beispieldaten/Ancillary/Outline_continents_africa.gpkg") 
+hillshade <- raster("Beispieldaten/Ancillary/SR_LR/SR_LR.tif") %>% readAll()
 
-### Step 2: Preprocessing the Data
 
-The goal of this step is to prepare the time series for plotting. Filling NAs is not necessary here.
-The median value for every month is calculated.
-We use ts_raster to create the raster time series, the first true 'rtsVis' object. Note that 24 frames are created using linear interpolation. The values are, thus, changed, but the final animation will become much smoother.
-
-``` r
-#### Step 2: Preprocessing the Data ####
-
-month_median <- stackApply(ts, months(getZ(ts)), fun = median)
-
-in_dates <- as.POSIXct(seq.Date(as.Date("2013-01-01"),
-                                as.Date("2013-12-30"),
-                                length.out = 12))
-
+#Create in-times and out-times
+in_dates <- as.POSIXct(seq.Date(as.Date("2017-01-15"),
+                                as.Date("2020-12-15"),
+                                length.out = length(modis_filled)))
+                                
 out_dates <-seq.POSIXt(from = in_dates[1],
                        to = in_dates[length(in_dates)],
-                       length.out = length(in_dates)*2 )
-
-month_median_interpolated <-  ts_raster(r_list = as.list(month_median),
-                                        r_times = in_dates,
-                                        out_times = out_dates,
-                                        fade_raster = T)
+                       length.out = length(in_dates)*4 )
+                       
+# simulate a missing image
+in_dates <- in_dates[-13]
+modis_tifs <- modis_tifs[-13]
 
 ```
-### Step 3: Creating Basic Frames
+### Part 2: Preparing the Rasters
 
-In this step, ts_makeframes is used to create a list of frames (ggplot2 objects) from the time series (raster objects).
-Using pipes is not necessary, but improves readibility greatly. Here, we also use moveVis functions to easily add map elements. 
-Note that ggplot2 functions can be easily applied to the created frames using lapply. 
+For the preparation of the rasters, we use three functions:
+
+* `stack` A <a href="https://CRAN.R-project.org/package=raster">`raster`</a> function which we use with `lapply` to load the tifs into a list.
+* `ts_fill_na` We fill, wherever possible, missing values using simple temporal interpolation. This is not strictly necessary, but improves the visualization.
+* `ts_raster` We assemble a full time series. This will interpolate additional missing frames for every desired output date and can take a long time for large time-series. 
+
+Often, data requires additional preprocessing steps, such as reprojection, cropping, or masking.
+These can be applied with `lapply` to retain the list format.
+
+`ts_raster` returns a list of interpolated rasters, one for each desired output date, with timestamps attached.
+
 
 ``` r
-dem <- raster("Beispieldaten/Ancillary/SR_LR/SR_LR.tif") 
-month_median_interpolated_fr <-  
-  ts_makeframes(x_list = month_median_interpolated,
-                hillshade = dem,
+#Read the images as stacks
+modis_tifs_stacks <- modis_tifs %>%  lapply(stack) 
+
+#fill NAs
+modis_filled <- ts_fill_na(modis_tifs_stacks)
+
+modis_ts <- ts_raster(
+  r_list = modis_filled,
+  r_times = in_dates,
+  out_times = out_dates,
+  fade_raster = T) 
+
+```
+
+### Part 3: Creating Basic RGB animations
+
+In this step, `ts_makeframes` is used to create a list of frames (<a href="https://ggplot2.tidyverse.org/">`ggplot`</a> objects) from the time series (<a href="https://CRAN.R-project.org/package=raster">`raster`</a> objects).
+We also add a outline to the plot area. This is one example of adding a *position* to a time series.
+Using pipes is not necessary, but improves readability greatly.  
+
+
+``` r
+
+#create the frames from the raster
+modis_frames_RGB <-  
+  ts_makeframes(x_list = modis_ts,
+                l_indices = c(1,4,3),  # MODIS bands are Red, NIR, Blue, Green
+                minq = 0.0)            # adjust the stretch slightly
+
+# Add the outline of the continent for visual clarity
+modis_frames_RGB_ol <- 
+  modis_frames_RGB %>% 
+  ts_add_positions_to_frames(
+    positions = outline,
+    psize = 1) 
+
+# Use moveVis utility to animate the frames into a gif
+moveVis::animate_frames(modis_frames_RGB_ol,
+                        overwrite = TRUE,
+                        out_file = "modis_frames_RGB_ol.gif",
+                        height=300,
+                        width=300,
+                        fps = 10,
+                        res=75)
+``` 
+
+<p align="center"><img src="https://github.com/JohMast/rtsVis_demo/blob/main/Images/modis_frames_RGB_ol.gif"></p>
+
+### Part 4: Customizing frames
+
+The animation created suggests notable vegetation dynamics. An easy way to highlight this is the NDVI.
+
+We calculate the NDVI using the `overlay` function provided by the <a href="https://CRAN.R-project.org/package=raster">`raster`</a> package, and reattach the timestamps using `ts_copy_frametimes`. Thereby we receive a second time series with a single layer per timestep. Thus, we do not create RGB frames, but gradient frames. 
+
+Note that the individual frames are simply <a href="https://ggplot2.tidyverse.org/">`ggplot`</a> objects. Hence, <a href="https://github.com/16EAGLE/moveVis">`moveVis`</a>  functions and <a href="https://ggplot2.tidyverse.org/">`ggplot`</a> functions can be easily applied to the created frames using `lapply`. 
+
+
+
+``` r
+
+#calculate the NDVI per image
+modis_ndvi <- modis_ts %>% lapply(function(x){
+  ndvi <- overlay(x[[2]], x[[1]], fun=function(nir,red){(nir-red)/(nir+red)})
+}) %>% rtsVis::ts_copy_frametimes(modis_ts)
+
+# Create the frames from the NDVI raster
+modis_ndvi_fr <-  
+  ts_makeframes(x_list = modis_ndvi,
+                hillshade = hillshade,
                 r_type = "gradient")
 
-month_median_interpolated_fr_mod <- month_median_interpolated_fr %>% lapply(FUN=function(x){x+
-    scale_fill_gradient2("NDVI\n(scaled by 10k)",
+# The frames can be adjusted like any ggplot 
+modis_ndvi_fr_styled <- modis_ndvi_fr %>% lapply(FUN=function(x){
+  x+scale_fill_gradient2("NDVI",
                          low = "red",
                          mid="yellow",
                          high = "green4",
-                         midpoint=3000,
-                         limits=c(-2000,10000),
+                         midpoint=0.3,
+                         limits=c(-0,1),
                          na.value = NA)+
     theme_bw() +
     xlab("Longitude")+
     ylab("Latitude")+
-    ggtitle("NDVI in Northern Europe",
-            "Product: MOD13A2 -- Monthly Composite 2011-2013 --   Projection: MODIS Sinusoidal")
-  }) %>%
-  moveVis::add_northarrow(colour = "black", position = "bottomright") %>% 
+    ggtitle("Seasonality of NDVI in Africa",
+            "Derived from MCD43A4 -- Monthly Composite 2015-2020 -- Projection: WGS 84 (EPSG 4326)")
+}) %>%
+  
+  # packages like moveVis provide additional mapping functions
+  moveVis::add_northarrow(colour = "black", position = "bottomleft") %>% 
   moveVis::add_progress()
-``` 
-#### Adding positions
-We use ts_add_positions_to_frames to add the positions of points to the frames. These positions can be points or polygons and either sf or sp objects.
+
+```
+
+
+### Part 5: Utilizing positions
+
+`rtsVis` uses vector objects (positions) in two different ways:
+
+* To **enhance** spatial frames, by adding noteworthy positions, such as test sites.
+* To **create** flow frames, which are animated plots which visualize the data that is extracted under the positions.
+
+Sometimes, adding a position is for visual appeal only, as we do here by adding an outline to the continents. 
+But often, it makes sense to use the two together. In this example, we use (`ts_add_positions_to_frames`) to add several locations as points to our spatial frames. Subsequently, we extract values in a buffer around these locations and create a line chart that visualizes the development of these values over time.
+
 
 ``` r
-# Adding Positions
-places_northern_europe <- rgdal::readOGR("Beispieldaten/Ancillary/Northern Europe/Places_Northern_Europe.shp")
-month_median_interpolated_fr_mod_pos <- 
-  ts_add_positions_to_frames(r_frame_list = month_median_interpolated_fr_mod,
-                             positions = places_northern_europe,
-                             position_names = places_northern_europe$Name,
+#reduce the number of points slightly
+
+modis_ndvi_fr_styled_pos <- 
+  modis_ndvi_fr_styled  %>% 
+  ts_add_positions_to_frames(outline,pcol = "white",psize = 1) %>% 
+  ts_add_positions_to_frames(positions = points,
+                             position_names = points$Name,
                              tcol = "blue4",
-                             t_hjust = -30000,
-                             tsize = 3,
+                             t_hjust = -1.5,
+                             tsize = 4,
                              psize=3,
                              pcol="blue4",
-                             add_text = T)
-```
-### Step 4: Creating Flow Frames
+                             add_text = T,col_by_pos = T)
 
-To create animated charts, ts_flow_frames can be used. By default, it provides support for line and violin plots, and custom functions are easily implemented.
-We use the same positions as before to create a list of line plots, one for each timestep. Around every point position, values in a buffer of 30000m are extracted and averaged.
-Note that for this, we pass the raster series, and not the previously created frames.
-
-``` r
-month_median_interpolated_lineframes <- 
-  ts_flow_frames(r_list = month_median_interpolated,
-                 positions = spTransform(places_northern_europe,crs(month_median_interpolated[[1]])),
-                 position_names = places_northern_europe$Name,
-                 pbuffer = 30000,
-                 val_min = -2000,
-                 val_max = 10000,
+# rtsVis comes with a variety of plotting functions. We select line2 
+# which maps color to position
+modis_ndvi_lineframes <-
+  modis_ndvi %>%  
+  ts_flow_frames(positions = points,
+                 position_names = points$Name,
+                 pbuffer = 0.1,
+                 val_min = -0,
+                 val_max = 1,
                  legend_position = "right",
-                 plot_function = "line_flp",
+                 plot_function = "line2",
                  aes_by_pos = TRUE,
-                 position_legend = TRUE) %>% 
+                 position_legend = TRUE) %>%
+  
+  # Flow frames too can be adjusted like any ggplot,
+  # for instance, to set a specific color scale
   lapply(FUN = function(x){
     x+
-      ggtitle("NDVI", "In a 30km radius around the places")+
-      scale_color_brewer("Places",palette = "Dark2")+
+      ggtitle("NDVI", "In a 1° radius around the places")+
       ylab("Median NDVI")+
-      xlab("Month")+
-      scale_x_datetime(labels = months)
+      xlab("Year")+
+      theme(aspect.ratio = 0.3)+
+      scale_color_brewer("Places",palette = "Set1")
   })
-  
 ```
-### Step 5: Animating the Frames
 
-To join our created plots together and animate them, we again use moveVis functions.
+Since the positions and the flow frames are thematically connected, it makes sense to combine the two in a single animation.
+For this, we again use <a href="https://github.com/16EAGLE/moveVis">`moveVis`</a> functionalities.
+
+Before we do that, we make sure that the colors of the points match those in the graph. Again, existing frames can be easily modified using `lapply` and ggplot2 syntax.
 
 ``` r
-month_median_joined <- moveVis::join_frames(list(month_median_interpolated_fr_mod_pos,month_median_interpolated_lineframes))
-moveVis::animate_frames(month_median_joined,
+# apply the same color palette to the spatial frames
+modis_ndvi_fr_styled_pos <- modis_ndvi_fr_styled_pos %>% lapply(function(x){
+  x+
+    scale_color_brewer("Places",palette = "Set1") 
+})
+  
+  
+
+#Join and animate the frames using moveVis functionalities
+modis_ndvi_joined <- moveVis::join_frames(
+  list(modis_ndvi_fr_styled,
+       modis_ndvi_lineframes)
+  )
+
+moveVis::animate_frames(modis_ndvi_joined,
                         overwrite = TRUE,
-                        out_file = "NDVI_Northern_Europe_joined_pause.gif",
+                        out_file = "modis_frames_NDVI.gif",
                         height=525,
                         width=1200,
-                        fps = 12,
-                        end_pause = 0.5,
+                        fps = 10,
                         res=75)
+  
+```
+#### Further plot types
+
+`rtsVis`provides a number of preset plot types for visualising multispectral, gradient, or discrete rasters:
+
+* Line plots(`line` and `line2`)
+
+* Violin charts (`vio`)
+* Density charts (`dens` and `dens2`)
+
+* Pie charts (`pie`)
+* Bar charts (`bar_stack` and `bar_fill`)
+
+They are all used in the same way, by passing the respective argument to `ts_flow_frames`: 
+
+``` r
+
+# Violin frames visualising the distributions of the different bands at different positions
+modis_ts_vioframes <-
+  modis_ts %>%  
+  ts_flow_frames(positions = points[1:3,],
+                 position_names = points[1:3,]$Name,
+                 pbuffer = 3,
+                 legend_position = "right",
+                 plot_function = "vio",aes_by_pos = F,
+                 position_legend = TRUE,band_colors = c("Red","Purple","Blue","Darkgreen"))
+
+
+# Density frames visualizing the distributions of the NDVI across positions 
+modis_ts_densframes <-
+  modis_ndvi %>%  
+  ts_flow_frames(positions = points[5:7,],
+                 position_names = points[5:7,]$Name,
+                 pbuffer = 3,
+                 plot_function = "dens2",
+                 band_legend_title = "NDVI",
+                 band_names = "NDVI",band_colors = c("olivegreen"))
+
+# plenty other types and custom plot functions...
+
+``` 
+
+It is also possible to create custom plot functions and pass them to `ts_flow_frames`, like this:
+
+``` r
+
+custom_plot_function <- function(edf,pl,lp, bl, blt,plt, ps, vs,abp){
+    # ... Code for the creation of the ggplot
+    # return (plot)
+   }
+   
+modis_ts_vioframes <-
+  modis_ts %>%  
+  ts_flow_frames(positions = points,
+                 position_names = points$Name,
+                 pbuffer = 3,
+                 plot_function = custom_plot_function)
 
 ```
-<p align="center"><img src="https://raw.githubusercontent.com/JohMast/rtsVis_demo/main/Images/NDVI_Northern_Europe_joined_pause.gif"></p>
+
+
+
+<p align="center"><img src="https://github.com/JohMast/rtsVis_demo/blob/main/Images/modis_frames_NDVI2.gif"></p>
 
 ## Demo
 
-For more examples, check out the [Demo](https://github.com/JohMast/rtsVis_demo) repository.
+For more examples, and a guide on how to create custom plot functions, check out the [Demo](https://github.com/JohMast/rtsVis_demo) repository.
 
-In development, published on CRAN. Last updated: `2021-03-02 17:30:00 CEST`
+In development, published on CRAN. Last updated: `2021-05-18 17:30:00 CEST`
 
+<p align="center"><img src="https://raw.githubusercontent.com/JohMast/rtsVis_demo/main/Images/NDVI_Northern_Europe_joined_pause.gif"></p>
 
 ## Links
 

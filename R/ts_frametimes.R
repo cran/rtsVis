@@ -34,7 +34,7 @@
   ft <- unlist(x)
   attributes(ft) <- attributes(x[[1]])
   
-  if(all(is.na(ft))) out("No associated timestamps per frame could be found in frames. Did you use frames_spatial or frames_graph to create the supplied list of frames?", type = 3)
+  if(all(is.na(ft))) out("No associated timestamps per frame could be found in frames. Did you use frames_spatial or frames_graph to create the supplied list of frames?", type = 2)
   if(any(is.na(ft))) out("At least one frame is missing the time attribute.", type = 2)
   
   return(ft)
@@ -52,4 +52,20 @@
     return(x)
   }, SIMPLIFY = FALSE)
 return(out)
+}
+
+
+#' Sets frametimes for a list of frames
+#'
+#' @param x A list to which timestamps are added.
+#' @param y A list from which the timestamps are derived.
+#' @return A list identical to x with timestamps carried over from y.
+#' @export
+ts_copy_frametimes <- function(x,y){
+  if(length(x)==length(y)){
+    .ts_set_frametimes(x,.ts_get_frametimes(y))
+  }else{
+    stop("Lengths of lists are not identical. Cannot copy timestamps")
+  }
+  
 }

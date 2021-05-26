@@ -13,7 +13,8 @@ ts_makeframes(
   blacken_NA = FALSE,
   l_indices = NULL,
   alpha = NULL,
-  hillshade = NULL
+  hillshade = NULL,
+  ...
 )
 }
 \arguments{
@@ -34,6 +35,8 @@ ts_makeframes(
 \item{alpha}{(Optional) numeric. The opacity of the plot. Default is 1.}
 
 \item{hillshade}{(Optional) A raster layer. If one is provided, it will be used as the base layer and plotted with \link[RStoolbox]{ggR} while the raster layers from x_list will be plotted over it with a default \code{alpha} of 0.5. By default, no hillshade is used.}
+
+\item{...}{(Optional) further arguments for the plotting.}
 }
 \value{
 A list of ggplots
